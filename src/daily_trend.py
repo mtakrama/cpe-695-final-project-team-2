@@ -24,6 +24,8 @@ import utilities as util
 data_prefix = os.path.join(os.path.dirname(__file__), '../data')
 plot_path = os.path.join(os.path.dirname(__file__), 'plots')
 
+xaxis_plotter = []
+filename_plotter = []
 
 def read(file):
     try:
@@ -73,7 +75,8 @@ def setup_plot_paths():
     # Cleanup and setup plots path
     if os.path.exists(os.path.join(os.getcwd(), plot_path)):
         shutil.rmtree(plot_path, ignore_errors=True)
-    os.mkdir(plot_path)
+    else:
+        os.mkdir(plot_path)
 
 
 def plot_all_daily_trends(data_files):
@@ -81,9 +84,11 @@ def plot_all_daily_trends(data_files):
 
     for csv_file in data_files:
         daily_cases = read(os.path.join(data_prefix, csv_file))
+        xaxis_plotter.append(len(daily_cases))
 
         # grab the state name from file path
         filename = re.search('.*__(.+?)\.csv', csv_file).group(1)
+        filename_plotter.append(filename)
 
         plot(filename=os.path.join(plot_path, filename + "_daily_case_trends" + '.png'),
              title="{} Daily Case Trend".format(filename.title()),
@@ -184,7 +189,6 @@ def main():
     # print("accuracy_score", accuracy_score(
     #     dataTrainingY, dataTrainingPredY))
     plt.close()
-
     print('Model vs test data (error)')
     dataTestPredY = model.predict(dataTestX)
     plt.figure()
@@ -199,5 +203,59 @@ def main():
     plot_results_sample(dataTimestamps, dataRawCases, model, 20, numPastDays, numFutureDays, "sample_20")
     plot_results_sample(dataTimestamps, dataRawCases, model, 100, numPastDays, numFutureDays, "sample_100")
     plot_results_sample(dataTimestamps, dataRawCases, model, 300, numPastDays, numFutureDays, "sample_300")
+
+    prettyplotter(dataRawCases, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
+
+def prettyplotter(dataRawCases, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays):
+
+    plt.figure()
+    print('Pretty Model vs training data (error)')
+    i = 0
+    accum = numFutureDays
+    for xaxisTrainPlot in xaxis_plotter:
+        if i < 10: #plot first 10
+            plt.figure()
+
+            dataTrainingPredY = model.predict(np.asarray([dataRawCases[accum:accum+numPastDays]]))[0]
+            
+            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawCases[accum-numFutureDays:accum+numPastDays], label='Training Data')
+            plt.plot(dataTimestamps[accum-numFutureDays:accum], dataTrainingPredY, label='Predicted Data')
+            plt.title("{} Model vs Training Data ".format(filename_plotter[i].title()))
+            plt.xlabel("Unix Time Stamp")
+            plt.ylabel("Number of Cases")
+            plt.legend(loc="upper right")
+
+            accum = accum + xaxisTrainPlot
+            figtitle = "pretty_model_vs_training_data_error_" + str(filename_plotter[i]) + ".png"  
+            i = i + 1
+
+            plt.savefig(os.path.join(
+                plot_path, figtitle))
+            plt.close()
+
+    '''
+    print('Pretty Model vs test data (error)')
+    plt.figure()    
+    accum = 0
+    i = 0
+    for xaxisTestPlot in xaxis_plotter:
+        if i < -1:
+            plt.figure()
+            
+            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawCases[accum-numFutureDays:accum+numPastDays], label='Training Data')
+            plt.plot(dataTimestamps[accum-numFutureDays:accum], model.predict(np.asarray([dataRawCases[accum:accum+numPastDays]]))[0], label='Predicted Data')
+            plt.title("{} Model vs Test Data ".format(filename_plotter[i].title()))
+            plt.xlabel("Unix Time Stamp")
+            plt.ylabel("Number of Cases")
+            plt.legend(loc="upper right")
+
+            accum = accum + xaxisTestPlot
+            figtitle = "pretty_model_vs_test_data_error_" + str(filename_plotter[i]) + ".png"  
+            i = i + 1
+
+            plt.savefig(os.path.join(
+                plot_path, figtitle))
+            plt.close()
+    '''
 
 main()
