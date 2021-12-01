@@ -94,6 +94,12 @@ def plot_all_daily_trends(data_files):
 
     print("Done plotting daily trends.")
 
+def plot_results_sample(data_timestamps, data_real, model, index, num_past_days, num_future_days, file_name):
+    plt.figure()
+    plt.plot(data_timestamps[index-num_future_days:index+num_past_days], data_real[index-num_future_days:index+num_past_days], '-',
+             data_timestamps[index-num_future_days:index], model.predict(np.asarray([data_real[index:index+num_past_days]]))[0], '--')
+    plt.savefig(os.path.join(plot_path, file_name + ".png"))
+    plt.close()
 
 def main():
     setup_plot_paths()
@@ -103,9 +109,13 @@ def main():
 
     plot_all_daily_trends(csv_files)
 
+    numPastDays = 40
+    numFutureDays = 20
+
     # Create sets of 10 input data points and 1 output data point
     # (model predicts the next case number given 10 previous case counts)
     dataTimestamps = []
+    dataRawCases = []
     dataCuratedX = []
     dataCuratedY = []
     vaccinatedY = []
@@ -115,10 +125,11 @@ def main():
         daily_cases = read(os.path.join(data_prefix, csv_file))
 
         for index, entry in enumerate(daily_cases):
-            if index + 40 < len(daily_cases):
+            if index > numFutureDays and index + numPastDays < len(daily_cases):
                 dataTimestamps.append(daily_cases[index, 0])
-                dataCuratedX.append(daily_cases[index+1:index+41, 2])
-                dataCuratedY.append(daily_cases[index, 2])
+                dataRawCases.append(daily_cases[index, 2])
+                dataCuratedX.append(daily_cases[index+1:index+numPastDays+1, 2])
+                dataCuratedY.append(daily_cases[index-numFutureDays+1:index+1, 2])
                 vaccinatedY.append(daily_cases[index, 3])
 
     dataCuratedX = np.array(dataCuratedX)
@@ -136,17 +147,17 @@ def main():
 
     # Build and train model
     model = keras.Sequential()
-    model.add(layers.Dense(40, activation="relu"))
+    model.add(layers.Dense(numPastDays, activation="relu"))
     model.add(layers.Dense(10, activation="relu"))
     model.add(layers.Dense(5, activation="relu"))
-    model.add(layers.Dense(1))
+    model.add(layers.Dense(numFutureDays))
 
     model.compile(
         optimizer=keras.optimizers.RMSprop(),
         loss='mean_squared_error'
     )
 
-    epochs = 200
+    epochs = 100
 
     history = model.fit(dataTrainingX, dataTrainingY,
                         epochs=epochs,
@@ -162,6 +173,7 @@ def main():
     plt.savefig(os.path.join(plot_path, "loss_plot.png"))
     plt.close()
 
+    '''
     print('Model vs training data (error)')
     dataTrainingPredY = model.predict(dataTrainingX)
     plt.figure()
@@ -181,6 +193,11 @@ def main():
     plt.savefig(os.path.join(plot_path, "model_vs_test_data.png"))
     plt.close()
     # print("accuracy_score", accuracy_score(dataTestY, dataTestPredY))
+    '''
 
+    # Plots real data vs predicted data from a single point
+    plot_results_sample(dataTimestamps, dataRawCases, model, 20, numPastDays, numFutureDays, "sample_20")
+    plot_results_sample(dataTimestamps, dataRawCases, model, 100, numPastDays, numFutureDays, "sample_100")
+    plot_results_sample(dataTimestamps, dataRawCases, model, 300, numPastDays, numFutureDays, "sample_300")
 
 main()
