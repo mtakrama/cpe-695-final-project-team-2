@@ -75,8 +75,8 @@ def setup_plot_paths():
     # Cleanup and setup plots path
     if os.path.exists(os.path.join(os.getcwd(), plot_path)):
         shutil.rmtree(plot_path, ignore_errors=True)
-    else:
-        os.mkdir(plot_path)
+    
+    os.mkdir(plot_path)
 
 
 def plot_all_daily_trends(data_files):
@@ -99,13 +99,6 @@ def plot_all_daily_trends(data_files):
 
     print("Done plotting daily trends.")
 
-def plot_results_sample(data_timestamps, data_real, model, index, num_past_days, num_future_days, file_name):
-    plt.figure()
-    plt.plot(data_timestamps[index-num_future_days:index+num_past_days], data_real[index-num_future_days:index+num_past_days], '-',
-             data_timestamps[index-num_future_days:index], model.predict(np.asarray([data_real[index:index+num_past_days]]))[0], '--')
-    plt.savefig(os.path.join(plot_path, file_name + ".png"))
-    plt.close()
-
 def main():
     setup_plot_paths()
 
@@ -117,13 +110,19 @@ def main():
     numPastDays = 40
     numFutureDays = 20
 
-    # Create sets of 10 input data points and 1 output data point
-    # (model predicts the next case number given 10 previous case counts)
+    # These arrays contain the per-day counts for number of cases and new vaccinations,
+    # and associated Unix timestamps
     dataTimestamps = []
     dataRawCases = []
+    dataRawVaccinated = []
+
+    # This array contains smaller arrays that have been created as a working set of
+    # inputs data points for the first layer of the network
     dataCuratedX = []
+
+    # This array contains smaller arrays that are the expected outputs for the input
+    # data points given by 'dataCuratedX'
     dataCuratedY = []
-    vaccinatedY = []
 
     for csv_file in csv_files:
         # TODO: inneficient, change to read only once.
@@ -133,9 +132,12 @@ def main():
             if index > numFutureDays and index + numPastDays < len(daily_cases):
                 dataTimestamps.append(daily_cases[index, 0])
                 dataRawCases.append(daily_cases[index, 2])
-                dataCuratedX.append(daily_cases[index+1:index+numPastDays+1, 2])
+                dataRawVaccinated.append(daily_cases[index, 3])
+                dataInputX = []
+                dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 2])
+                dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 3])
+                dataCuratedX.append(dataInputX[:])
                 dataCuratedY.append(daily_cases[index-numFutureDays+1:index+1, 2])
-                vaccinatedY.append(daily_cases[index, 3])
 
     dataCuratedX = np.array(dataCuratedX)
 
@@ -144,17 +146,14 @@ def main():
     dataTrainingTimestamps = dataTimestamps[trainingSplitIndex:]
     dataTrainingX = np.asarray(dataCuratedX[trainingSplitIndex:])
     dataTrainingY = np.asarray(dataCuratedY[trainingSplitIndex:])
-    vaccinatedTrainingY = np.asarray(vaccinatedY[trainingSplitIndex:])
     dataTestTimestamps = dataTimestamps[:trainingSplitIndex]
     dataTestX = np.asarray(dataCuratedX[:trainingSplitIndex])
     dataTestY = np.asarray(dataCuratedY[:trainingSplitIndex])
-    vaccinatedTestY = np.asarray(vaccinatedY[:trainingSplitIndex])
 
     # Build and train model
     model = keras.Sequential()
-    model.add(layers.Dense(numPastDays, activation="relu"))
-    model.add(layers.Dense(10, activation="relu"))
-    model.add(layers.Dense(5, activation="relu"))
+    model.add(layers.Dense(numPastDays * 2, activation="relu"))
+    model.add(layers.Dense(30, activation="relu"))
     model.add(layers.Dense(numFutureDays))
 
     model.compile(
@@ -162,7 +161,7 @@ def main():
         loss='mean_squared_error'
     )
 
-    epochs = 100
+    epochs = 200
 
     history = model.fit(dataTrainingX, dataTrainingY,
                         epochs=epochs,
@@ -178,35 +177,9 @@ def main():
     plt.savefig(os.path.join(plot_path, "loss_plot.png"))
     plt.close()
 
-    '''
-    print('Model vs training data (error)')
-    dataTrainingPredY = model.predict(dataTrainingX)
-    plt.figure()
-    plt.plot(dataTrainingTimestamps, dataTrainingY, '-',
-             dataTrainingTimestamps, dataTrainingPredY, '--')
-    plt.savefig(os.path.join(
-        plot_path, "model_vs_training_data_error.png"))
-    # print("accuracy_score", accuracy_score(
-    #     dataTrainingY, dataTrainingPredY))
-    plt.close()
-    print('Model vs test data (error)')
-    dataTestPredY = model.predict(dataTestX)
-    plt.figure()
-    plt.plot(dataTestTimestamps, dataTestY, '-',
-             dataTestTimestamps, dataTestPredY, '--')
-    plt.savefig(os.path.join(plot_path, "model_vs_test_data.png"))
-    plt.close()
-    # print("accuracy_score", accuracy_score(dataTestY, dataTestPredY))
-    '''
+    prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
 
-    # Plots real data vs predicted data from a single point
-    plot_results_sample(dataTimestamps, dataRawCases, model, 20, numPastDays, numFutureDays, "sample_20")
-    plot_results_sample(dataTimestamps, dataRawCases, model, 100, numPastDays, numFutureDays, "sample_100")
-    plot_results_sample(dataTimestamps, dataRawCases, model, 300, numPastDays, numFutureDays, "sample_300")
-
-    prettyplotter(dataRawCases, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
-
-def prettyplotter(dataRawCases, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays):
+def prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays):
 
     plt.figure()
     print('Pretty Model vs training data (error)')
@@ -216,9 +189,13 @@ def prettyplotter(dataRawCases, dataTestX, dataTestY, dataTrainingX, dataTrainin
         if i < 10: #plot first 10
             plt.figure()
 
-            dataTrainingPredY = model.predict(np.asarray([dataRawCases[accum:accum+numPastDays]]))[0]
+            dataModelInput = []
+            dataModelInput.extend(dataRawCases[accum:accum+numPastDays])
+            dataModelInput.extend(dataRawVaccinated[accum:accum+numPastDays])
+            dataTrainingPredY = model.predict(np.asarray([dataModelInput[:]]))[0]
             
-            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawCases[accum-numFutureDays:accum+numPastDays], label='Training Data')
+            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawCases[accum-numFutureDays:accum+numPastDays], label='Input Case Data')
+            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawVaccinated[accum-numFutureDays:accum+numPastDays], label='Input Vaccinated Data')
             plt.plot(dataTimestamps[accum-numFutureDays:accum], dataTrainingPredY, label='Predicted Data')
             plt.title("{} Model vs Training Data ".format(filename_plotter[i].title()))
             plt.xlabel("Unix Time Stamp")
@@ -232,30 +209,5 @@ def prettyplotter(dataRawCases, dataTestX, dataTestY, dataTrainingX, dataTrainin
             plt.savefig(os.path.join(
                 plot_path, figtitle))
             plt.close()
-
-    '''
-    print('Pretty Model vs test data (error)')
-    plt.figure()    
-    accum = 0
-    i = 0
-    for xaxisTestPlot in xaxis_plotter:
-        if i < -1:
-            plt.figure()
-            
-            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawCases[accum-numFutureDays:accum+numPastDays], label='Training Data')
-            plt.plot(dataTimestamps[accum-numFutureDays:accum], model.predict(np.asarray([dataRawCases[accum:accum+numPastDays]]))[0], label='Predicted Data')
-            plt.title("{} Model vs Test Data ".format(filename_plotter[i].title()))
-            plt.xlabel("Unix Time Stamp")
-            plt.ylabel("Number of Cases")
-            plt.legend(loc="upper right")
-
-            accum = accum + xaxisTestPlot
-            figtitle = "pretty_model_vs_test_data_error_" + str(filename_plotter[i]) + ".png"  
-            i = i + 1
-
-            plt.savefig(os.path.join(
-                plot_path, figtitle))
-            plt.close()
-    '''
 
 main()
