@@ -17,7 +17,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from sklearn.metrics import accuracy_score
 
 import utilities as util
 
@@ -26,6 +25,9 @@ plot_path = os.path.join(os.path.dirname(__file__), 'plots')
 
 xaxis_plotter = []
 filename_plotter = []
+
+numPastDays = 40
+numFutureDays = 20
 
 
 def read(file):
@@ -83,6 +85,10 @@ def setup_plot_paths():
 def plot_all_daily_trends(data_files):
     print("Plotting daily trends...")
 
+    # setup daily trend path
+    daily_trend_path = os.path.join(plot_path, 'daily_trends_raw')
+    os.mkdir(daily_trend_path)
+
     for csv_file in data_files:
         daily_cases = read(os.path.join(data_prefix, csv_file))
         xaxis_plotter.append(len(daily_cases))
@@ -91,7 +97,7 @@ def plot_all_daily_trends(data_files):
         filename = re.search('.*__(.+?)\.csv', csv_file).group(1)
         filename_plotter.append(filename)
 
-        plot(filename=os.path.join(plot_path, filename + "_daily_case_trends" + '.png'),
+        plot(filename=os.path.join(daily_trend_path, filename + "_raw_daily_case_trends.png"),
              title="{} Daily Case Trend".format(filename.title()),
              xlabel="Unix Time Stamp",
              ylabel="Number of Cases",
@@ -101,17 +107,7 @@ def plot_all_daily_trends(data_files):
     print("Done plotting daily trends.")
 
 
-def main():
-    setup_plot_paths()
-
-    # Discover case trend csv files and plot daily trends
-    csv_files = glob.glob(data_prefix + '/data_table_for_daily_case_trends*')
-
-    plot_all_daily_trends(csv_files)
-
-    numPastDays = 40
-    numFutureDays = 20
-
+def prepare_data(csv_files):
     # These arrays contain the per-day counts for number of cases and new vaccinations,
     # and associated Unix timestamps
     dataTimestamps = []
@@ -127,7 +123,6 @@ def main():
     dataCuratedY = []
 
     for csv_file in csv_files:
-        # TODO: inneficient, change to read only once.
         daily_cases = read(os.path.join(data_prefix, csv_file))
 
         for index, entry in enumerate(daily_cases):
@@ -135,6 +130,7 @@ def main():
                 dataTimestamps.append(daily_cases[index, 0])
                 dataRawCases.append(daily_cases[index, 2])
                 dataRawVaccinated.append(daily_cases[index, 3])
+
                 dataInputX = []
                 dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 2])
                 dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 3])
@@ -153,6 +149,10 @@ def main():
     dataTestX = np.asarray(dataCuratedX[:trainingSplitIndex])
     dataTestY = np.asarray(dataCuratedY[:trainingSplitIndex])
 
+    return dataRawCases, dataRawVaccinated, dataTestTimestamps, dataTrainingTimestamps, dataTimestamps, dataTrainingX, dataTrainingY, dataTestX, dataTestY
+
+
+def define_compile_model(optimizer_str, loss_str, metrics_list):
     # Build and train model
     model = keras.Sequential()
     model.add(layers.Dense(numPastDays * 2, activation="relu"))
@@ -160,29 +160,52 @@ def main():
     model.add(layers.Dense(numFutureDays))
 
     model.compile(
-        optimizer='adam',
-        loss='mean_squared_error',
-        metrics=['accuracy']
+        optimizer=optimizer_str,
+        loss=loss_str,
+        metrics=metrics_list
     )
 
-    epochs = 200
+    return model
 
-    history = model.fit(dataTrainingX, dataTrainingY,
-                        epochs=epochs,
-                        validation_data=(dataTestX, dataTestY),
-                        verbose=0
-                        )
 
-    eval_info = model.evaluate(dataTestX, dataTestY)
-    print('Loss: {}, Accuracy: {}'.format(eval_info[0], eval_info[1]))
-
-    # Plot loss
+def plot_loss(history, epochs):
+    # plot loss
     hLoss = history.history['loss']
     hVLoss = history.history['val_loss']
     plt.figure()
     plt.plot(range(epochs), hLoss, '-', range(epochs), hVLoss, '--')
     plt.savefig(os.path.join(plot_path, "loss_plot.png"))
     plt.close()
+
+
+def main():
+    setup_plot_paths()
+
+    # Discover case trend csv files and plot daily trends
+    csv_files = glob.glob(data_prefix + '/data_table_for_daily_case_trends*')
+
+    plot_all_daily_trends(csv_files)
+
+    # preparation
+    dataRawCases, dataRawVaccinated, dataTestTimestamps, dataTrainingTimestamps, dataTimestamps, dataTrainingX, dataTrainingY, dataTestX, dataTestY = prepare_data(
+        csv_files)
+
+    # model definition
+    model = define_compile_model(
+        'adam', 'mean_squared_error', ['accuracy'])
+
+    epochs = 200
+    history = model.fit(dataTrainingX, dataTrainingY,
+                        epochs=epochs,
+                        validation_data=(dataTestX, dataTestY),
+                        verbose=0
+                        )
+
+    # model evaluation
+    eval_info = model.evaluate(dataTestX, dataTestY)
+    print('Loss: {}, Accuracy: {}'.format(eval_info[0], eval_info[1]))
+
+    plot_loss(history, epochs)
 
     prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY,
                   dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
