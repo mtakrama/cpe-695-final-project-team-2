@@ -27,6 +27,7 @@ plot_path = os.path.join(os.path.dirname(__file__), 'plots')
 xaxis_plotter = []
 filename_plotter = []
 
+
 def read(file):
     try:
         data = util.read(file, util.FileType.CSV)
@@ -75,7 +76,7 @@ def setup_plot_paths():
     # Cleanup and setup plots path
     if os.path.exists(os.path.join(os.getcwd(), plot_path)):
         shutil.rmtree(plot_path, ignore_errors=True)
-    
+
     os.mkdir(plot_path)
 
 
@@ -98,6 +99,7 @@ def plot_all_daily_trends(data_files):
              ydata=daily_cases[:, 2])
 
     print("Done plotting daily trends.")
+
 
 def main():
     setup_plot_paths()
@@ -137,7 +139,8 @@ def main():
                 dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 2])
                 dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 3])
                 dataCuratedX.append(dataInputX[:])
-                dataCuratedY.append(daily_cases[index-numFutureDays+1:index+1, 2])
+                dataCuratedY.append(
+                    daily_cases[index-numFutureDays+1:index+1, 2])
 
     dataCuratedX = np.array(dataCuratedX)
 
@@ -157,8 +160,9 @@ def main():
     model.add(layers.Dense(numFutureDays))
 
     model.compile(
-        optimizer=keras.optimizers.RMSprop(),
-        loss='mean_squared_error'
+        optimizer='adam',
+        loss='mean_squared_error',
+        metrics=['accuracy']
     )
 
     epochs = 200
@@ -169,6 +173,9 @@ def main():
                         verbose=0
                         )
 
+    eval_info = model.evaluate(dataTestX, dataTestY)
+    print('Loss: {}, Accuracy: {}'.format(eval_info[0], eval_info[1]))
+
     # Plot loss
     hLoss = history.history['loss']
     hVLoss = history.history['val_loss']
@@ -177,7 +184,9 @@ def main():
     plt.savefig(os.path.join(plot_path, "loss_plot.png"))
     plt.close()
 
-    prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
+    prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY,
+                  dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
+
 
 def prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays):
 
@@ -186,28 +195,35 @@ def prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTra
     i = 0
     accum = numFutureDays
     for xaxisTrainPlot in xaxis_plotter:
-        if i < 10: #plot first 10
+        if i < 10:  # plot first 10
             plt.figure()
 
             dataModelInput = []
             dataModelInput.extend(dataRawCases[accum:accum+numPastDays])
             dataModelInput.extend(dataRawVaccinated[accum:accum+numPastDays])
-            dataTrainingPredY = model.predict(np.asarray([dataModelInput[:]]))[0]
-            
-            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawCases[accum-numFutureDays:accum+numPastDays], label='Input Case Data')
-            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays], dataRawVaccinated[accum-numFutureDays:accum+numPastDays], label='Input Vaccinated Data')
-            plt.plot(dataTimestamps[accum-numFutureDays:accum], dataTrainingPredY, label='Predicted Data')
-            plt.title("{} Model vs Training Data ".format(filename_plotter[i].title()))
+            dataTrainingPredY = model.predict(
+                np.asarray([dataModelInput[:]]))[0]
+
+            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays],
+                     dataRawCases[accum-numFutureDays:accum+numPastDays], label='Input Case Data')
+            plt.plot(dataTimestamps[accum-numFutureDays:accum+numPastDays],
+                     dataRawVaccinated[accum-numFutureDays:accum+numPastDays], label='Input Vaccinated Data')
+            plt.plot(dataTimestamps[accum-numFutureDays:accum],
+                     dataTrainingPredY, label='Predicted Data')
+            plt.title("{} Model vs Training Data ".format(
+                filename_plotter[i].title()))
             plt.xlabel("Unix Time Stamp")
             plt.ylabel("Number of Cases")
             plt.legend(loc="upper right")
 
             accum = accum + xaxisTrainPlot
-            figtitle = "pretty_model_vs_training_data_error_" + str(filename_plotter[i]) + ".png"  
+            figtitle = "pretty_model_vs_training_data_error_" + \
+                str(filename_plotter[i]) + ".png"
             i = i + 1
 
             plt.savefig(os.path.join(
                 plot_path, figtitle))
             plt.close()
+
 
 main()
