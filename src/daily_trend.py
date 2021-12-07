@@ -142,14 +142,16 @@ def prepare_data(csv_files):
 
     # Split training and test data
     trainingSplitIndex = round(len(dataCuratedX) * 0.3)
+
     dataTrainingTimestamps = dataTimestamps[trainingSplitIndex:]
     dataTrainingX = np.asarray(dataCuratedX[trainingSplitIndex:])
     dataTrainingY = np.asarray(dataCuratedY[trainingSplitIndex:])
+
     dataTestTimestamps = dataTimestamps[:trainingSplitIndex]
     dataTestX = np.asarray(dataCuratedX[:trainingSplitIndex])
     dataTestY = np.asarray(dataCuratedY[:trainingSplitIndex])
 
-    return dataRawCases, dataRawVaccinated, dataTestTimestamps, dataTrainingTimestamps, dataTimestamps, dataTrainingX, dataTrainingY, dataTestX, dataTestY
+    return dataTimestamps, dataRawCases, dataRawVaccinated, (dataTrainingTimestamps, dataTrainingX, dataTrainingY), (dataTestTimestamps, dataTestX, dataTestY)
 
 
 def define_compile_model(optimizer_str, loss_str, metrics_list):
@@ -187,7 +189,9 @@ def main():
     plot_all_daily_trends(csv_files)
 
     # preparation
-    dataRawCases, dataRawVaccinated, dataTestTimestamps, dataTrainingTimestamps, dataTimestamps, dataTrainingX, dataTrainingY, dataTestX, dataTestY = prepare_data(
+    training_data_tpl = tuple()
+    test_data_tpl = tuple()
+    dataTimestamps, dataRawCases, dataRawVaccinated, training_data_tpl, test_data_tpl = prepare_data(
         csv_files)
 
     # model definition
@@ -195,20 +199,20 @@ def main():
         'adam', 'mean_squared_error', ['accuracy'])
 
     epochs = 200
-    history = model.fit(dataTrainingX, dataTrainingY,
+    history = model.fit(training_data_tpl[1], training_data_tpl[2],
                         epochs=epochs,
-                        validation_data=(dataTestX, dataTestY),
+                        validation_data=(test_data_tpl[1], test_data_tpl[2]),
                         verbose=0
                         )
 
     # model evaluation
-    eval_info = model.evaluate(dataTestX, dataTestY)
+    eval_info = model.evaluate(test_data_tpl[1], test_data_tpl[2])
     print('Loss: {}, Accuracy: {}'.format(eval_info[0], eval_info[1]))
 
     plot_loss(history, epochs)
 
-    prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY,
-                  dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays)
+    prettyplotter(dataRawCases, dataRawVaccinated, test_data_tpl[1], test_data_tpl[2], training_data_tpl[1], training_data_tpl[2],
+                  training_data_tpl[0], test_data_tpl[0], dataTimestamps, model, numPastDays, numFutureDays)
 
 
 def prettyplotter(dataRawCases, dataRawVaccinated, dataTestX, dataTestY, dataTrainingX, dataTrainingY, dataTrainingTimestamps, dataTestTimestamps, dataTimestamps, model, numPastDays, numFutureDays):
