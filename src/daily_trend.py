@@ -250,15 +250,15 @@ def evaluate_loss_per_state(model, state_level_validation_data_lst):
 
     # plot bar chart
     states = [state_mse_pair[0] for state_mse_pair in state_mse_pairs]
-    mses = [state_mse_pair[1] for state_mse_pair in state_mse_pairs]
+    rmses = np.sqrt([state_mse_pair[1] for state_mse_pair in state_mse_pairs])
 
     # creating the bar plot
     plt.figure()
-    plt.bar(states, mses, color='maroon',
+    plt.bar(states, rmses, color='maroon',
             width=0.4)
     plt.xlabel("States")
-    plt.ylabel("Mean Square Error")
-    plt.title("Mean Square Error by State")
+    plt.ylabel("Root Mean Square Error")
+    plt.title("RMSE per state")
     plt.savefig(os.path.join(plot_path, 'mse_by_state.png'))
     plt.close()
 
