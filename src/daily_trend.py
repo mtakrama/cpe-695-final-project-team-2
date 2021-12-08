@@ -243,8 +243,8 @@ def evaluate_loss_per_state(model, state_level_validation_data_lst):
         mse_metric = eval_info[1]
 
         print('-'*100)
-        print('State: {}, Loss: {}, MSE metric: {}'.format(
-            state_name, loss_metric, mse_metric))
+        print('State: {}, MSE metric: {}'.format(
+            state_name, np.sqrt(mse_metric)))
 
         state_mse_pairs.append((state_name, mse_metric))
 
