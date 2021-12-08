@@ -93,6 +93,10 @@ def setup_plot_paths():
     os.mkdir(plot_path)
 
 
+def grab_state_name(path_str):
+    return re.search('.*__(.+?)\.csv', path_str).group(1)
+
+
 def plot_all_daily_trends(data_files):
     print("Plotting daily trends...")
 
@@ -105,7 +109,7 @@ def plot_all_daily_trends(data_files):
         xaxis_plotter.append(len(daily_cases))
 
         # grab the state name from file path
-        filename = re.search('.*__(.+?)\.csv', csv_file).group(1)
+        filename = grab_state_name(csv_file)
         filename_plotter.append(filename)
 
         plot(filename=os.path.join(daily_trend_path, filename + "_raw_daily_case_trends.png"),
@@ -133,12 +137,17 @@ def prepare_data(csv_files):
     # data points given by 'dataCuratedX'
     dataCuratedY = []
 
+    # State level validation data
+    state_level_validation_data_lst = []
+
     for csv_file in csv_files:
         daily_cases = read(os.path.join(data_prefix, csv_file))
 
-        print('Current CSV file: {}'.format(csv_file))
-        print(' - Daily cases: {}'.format(daily_cases))
+        current_state = grab_state_name(csv_file)
+        # print('Extracting data for {} state...'.format(current_state))
 
+        state_data_x = []
+        state_data_y = []
         for index, entry in enumerate(daily_cases):
             if index > numFutureDays and index + numPastDays < len(daily_cases):
                 dataTimestamps.append(daily_cases[index, 0])
@@ -146,24 +155,34 @@ def prepare_data(csv_files):
                 dataRawVaccinated.append(daily_cases[index, 3])
 
                 dataInputX = []
-
                 dataInputX.extend(
                     daily_cases[index+1:index+numPastDays+1, 2])
-                print(' - DataInputX: {}'.format(
-                    daily_cases[index+1:index+numPastDays+1, 2]))
-
                 dataInputX.extend(
                     daily_cases[index+1:index+numPastDays+1, 3])
-                print(' - DataInputX: {}'.format(dataInputX))
-                print(' - DataInputX[:]: {}'.format(dataInputX[:]))
 
-                dataCuratedX.append(dataInputX[:])
-                dataCuratedY.append(
-                    daily_cases[index-numFutureDays+1:index+1, 2])
-                print("------------------------")
-        break
+                data_input_x = dataInputX[:]
+                data_input_y = daily_cases[index-numFutureDays+1:index+1, 2]
 
-    exit()
+                dataCuratedX.append(data_input_x)
+                dataCuratedY.append(data_input_y)
+
+                # state level raw data
+                state_data_x.append(data_input_x)
+                state_data_y.append(data_input_y)
+
+        state_level_split = round(len(state_data_x) * 0.3)
+        state_level_validation_x = state_data_x[:state_level_split]
+        state_level_validation_y = state_data_y[:state_level_split]
+
+        state_level_validation_data_lst.append(
+            (current_state, np.array(state_level_validation_x), np.array(state_level_validation_y)))
+
+        # print(state_level_validation_data_lst[0][2])
+
+        # inspect data
+        # for state_validation_data in state_level_validation_data_lst:
+        #     print(state_validation_data)
+        #     print('Timestamp length: {}'.format(len(state_validation_data[1])))
 
     dataCuratedX = np.array(dataCuratedX)
 
@@ -178,7 +197,7 @@ def prepare_data(csv_files):
     dataTestX = np.asarray(dataCuratedX[:trainingSplitIndex])
     dataTestY = np.asarray(dataCuratedY[:trainingSplitIndex])
 
-    return dataTimestamps, dataRawCases, dataRawVaccinated, (dataTrainingTimestamps, dataTrainingX, dataTrainingY), (dataTestTimestamps, dataTestX, dataTestY)
+    return dataTimestamps, dataRawCases, dataRawVaccinated, (dataTrainingTimestamps, dataTrainingX, dataTrainingY), (dataTestTimestamps, dataTestX, dataTestY), state_level_validation_data_lst
 
 
 def define_compile_model(optimizer_str, loss_str, metrics_list):
@@ -207,6 +226,43 @@ def plot_loss(history, epochs):
     plt.close()
 
 
+def evaluate_loss_per_state(model, state_level_validation_data_lst):
+    # model evaluation
+    state_mse_pairs = []
+    for state_validation_data in state_level_validation_data_lst:
+        state_name = state_validation_data[0]
+
+        if state_name not in ['idaho', 'mississippi', 'washington', 'delaware']:
+            continue
+
+        eval_info = model.evaluate(
+            state_validation_data[1], state_validation_data[2])
+
+        state_name = state_validation_data[0]
+        loss_metric = eval_info[0]
+        mse_metric = eval_info[1]
+
+        print('-'*100)
+        print('State: {}, Loss: {}, MSE metric: {}'.format(
+            state_name, loss_metric, mse_metric))
+
+        state_mse_pairs.append((state_name, mse_metric))
+
+    # plot bar chart
+    states = [state_mse_pair[0] for state_mse_pair in state_mse_pairs]
+    mses = [state_mse_pair[1] for state_mse_pair in state_mse_pairs]
+
+    # creating the bar plot
+    plt.figure()
+    plt.bar(states, mses, color='maroon',
+            width=0.4)
+    plt.xlabel("States")
+    plt.ylabel("Mean Square Error")
+    plt.title("Mean Square Error by State")
+    plt.savefig(os.path.join(plot_path, 'mse_by_state.png'))
+    plt.close()
+
+
 def main():
     setup_plot_paths()
 
@@ -218,12 +274,12 @@ def main():
     # preparation
     training_data_tpl = tuple()
     test_data_tpl = tuple()
-    dataTimestamps, dataRawCases, dataRawVaccinated, training_data_tpl, test_data_tpl = prepare_data(
+    dataTimestamps, dataRawCases, dataRawVaccinated, training_data_tpl, test_data_tpl, state_level_validation_data_lst = prepare_data(
         csv_files)
 
     # model definition
     model = define_compile_model(
-        'adam', 'mean_squared_error', ['accuracy'])
+        'adam', 'mean_squared_error', ['mse'])
 
     epochs = 200
     history = model.fit(training_data_tpl[1], training_data_tpl[2],
@@ -232,9 +288,7 @@ def main():
                         verbose=0
                         )
 
-    # model evaluation
-    eval_info = model.evaluate(test_data_tpl[1], test_data_tpl[2])
-    print('Loss: {}, Accuracy: {}'.format(eval_info[0], eval_info[1]))
+    evaluate_loss_per_state(model, state_level_validation_data_lst)
 
     plot_loss(history, epochs)
 
