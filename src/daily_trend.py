@@ -30,6 +30,17 @@ numPastDays = 40
 numFutureDays = 20
 
 
+def convert_to_unix(date_str):
+    eDateTime = datetime.strptime(date_str, '%b %d %Y')
+    return int(time.mktime(eDateTime.timetuple()))
+
+
+def zeroize_invalid_vaccination_rate(vaccine_rate_str):
+    if vaccine_rate_str == "N/A":
+        return 0
+    return vaccine_rate_str
+
+
 def read(file):
     try:
         data = util.read(file, util.FileType.CSV)
@@ -40,12 +51,12 @@ def read(file):
         data = np.array(data)
         data = np.delete(data, 0, 1)
 
-        # Convert string dates to Unix timestamps for easy plotting
+        # Clean data
         for entry in data:
-            eDateTime = datetime.strptime(entry[0], '%b %d %Y')
-            entry[0] = int(time.mktime(eDateTime.timetuple()))
-            if (entry[3] == ("N/A")):
-                entry[3] = 0
+            # print('Entry: {}'.format(entry))
+            entry[0] = convert_to_unix(entry[0])
+            entry[3] = zeroize_invalid_vaccination_rate(entry[3])
+
     except Exception as e:
         print(e)
         return None
@@ -125,6 +136,9 @@ def prepare_data(csv_files):
     for csv_file in csv_files:
         daily_cases = read(os.path.join(data_prefix, csv_file))
 
+        print('Current CSV file: {}'.format(csv_file))
+        print(' - Daily cases: {}'.format(daily_cases))
+
         for index, entry in enumerate(daily_cases):
             if index > numFutureDays and index + numPastDays < len(daily_cases):
                 dataTimestamps.append(daily_cases[index, 0])
@@ -132,11 +146,24 @@ def prepare_data(csv_files):
                 dataRawVaccinated.append(daily_cases[index, 3])
 
                 dataInputX = []
-                dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 2])
-                dataInputX.extend(daily_cases[index+1:index+numPastDays+1, 3])
+
+                dataInputX.extend(
+                    daily_cases[index+1:index+numPastDays+1, 2])
+                print(' - DataInputX: {}'.format(
+                    daily_cases[index+1:index+numPastDays+1, 2]))
+
+                dataInputX.extend(
+                    daily_cases[index+1:index+numPastDays+1, 3])
+                print(' - DataInputX: {}'.format(dataInputX))
+                print(' - DataInputX[:]: {}'.format(dataInputX[:]))
+
                 dataCuratedX.append(dataInputX[:])
                 dataCuratedY.append(
                     daily_cases[index-numFutureDays+1:index+1, 2])
+                print("------------------------")
+        break
+
+    exit()
 
     dataCuratedX = np.array(dataCuratedX)
 
